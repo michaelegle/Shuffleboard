@@ -1,0 +1,8 @@
+path: ../../Data
+train: images/train
+val: images/val
+nc: 3
+names: 
+    0: black_stone
+    1: gray_stone
+    2: green_stone
