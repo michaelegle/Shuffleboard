@@ -2,10 +2,10 @@ import cv2
 import random
 import os
 
-def save_random_frames_from_clip(video_folder, output_folder, frames_per_video = 100):
+def save_random_frames_from_clip(video_folder, output_folder, frames_per_video = 1):
     video_files = [
         f for f in os.listdir(video_folder)
-        if f.lower().endswith(".mov")
+        if f.lower().endswith("test_clip.mov")
     ]
 
     print(f"Found {len(video_files)} video(s). Extracting {frames_per_video} frames each...")
