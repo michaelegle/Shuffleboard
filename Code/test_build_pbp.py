@@ -9,15 +9,21 @@ def clean_tracking_data(track):
 
     track = track.assign(
         lag_x = lambda x: x.groupby('track_id')['x'].transform('shift'),
-        lag_y = lambda x: x.groupby('track_id')['y'].transform('shift')
+        lag_y = lambda x: x.groupby('track_id')['y'].transform('shift'),
+        lag_frame = lambda x: x.groupby('track_id')['frame'].transform('shift'),
+        n_frames_for_stone = lambda x: x.groupby('track_id')['frame'].transform('nunique')
     )
+
+    # TODO - remove stones that appear in X frames or fewer
+
+    track = track[track['n_frames_for_stone'] > 2]
 
     track['in_bounds_x'] = np.where((track['x'] >= 3.) & (track['x'] <= 23.), 1, 0)
     track['in_bounds_y'] = np.where((track['y'] >= 6.) & (track['y'] <= 176.), 1, 0)
     track['in_bounds'] = np.where((track['in_bounds_x'] == 0) | (track['in_bounds_y'] == 0), 0, 1)
 
     track['dist'] = np.sqrt((track['lag_x'] - track['x'])**2 + (track['lag_y'] - track['y'])**2)
-    track['s'] = (track['dist'] / 12 / 5280) * 30 * 60 * 60
+    track['s'] = (track['dist'] / 12 / 5280) * 30 * 60 * 60 / (track['frame'] - track['lag_frame'])
 
 
     track = track.groupby('track_id').apply(lambda x: x.assign(
@@ -36,8 +42,8 @@ def clean_tracking_data(track):
 
     track['stone_score'] = np.select(conditions, choices, default=0)
 
-    track['stone_settled'] = np.where(track['dist'] < 0.08, 1, 0)
-    track['stone_initialized'] = np.where(track['dist'].isna(), 1, 0)
+    track['stone_settled'] = np.where(track['dist'] < 0.1, 1, 0)
+    track['stone_initialized'] = np.where((track['dist'].isna()) & (track['in_bounds'] == 1), 1, 0)
 
     track = track.reset_index(drop = True)
 
@@ -66,7 +72,7 @@ def clean_tracking_data(track):
     track['stones_newly_settled_flag'] = np.where((track['event'] == 'all_stones_settled') & (track['lag_event'] != 'all_stones_settled'), 1, 0)
 
     track['start_new_toss_flag'] = np.where((track['event'] == 'stone_initialized') & (track['lag_event'] != 'stone_initialized'), 1, 0)
-    track['round_event_flag'] = np.where((track['start_new_toss_flag'] == 1) | (track['start_new_toss_flag'] == 1), 1, 0)
+    track['round_event_flag'] = np.where((track['start_new_toss_flag'] == 1) | (track['stones_newly_settled_flag'] == 1), 1, 0)
 
     track.sort_values(by = ['frame', 'stone_initialized', 'track_id'], ascending = [True, False, True], inplace = True)
 
@@ -74,6 +80,13 @@ def clean_tracking_data(track):
     track['during_toss'] = np.where(track['cumsum'] % 2 == 1, 1, 0)
 
     track['toss_id'] = np.where(track['during_toss'] == 1, track['cumsum'], None)
+
+    track = track.assign(
+        toss_start_validation = lambda x: x.groupby('toss_id')['start_new_toss_flag'].transform('max'),
+        stones_newly_settled_validation = lambda x: x.groupby('toss_id')['stones_newly_settled_flag'].transform('max')
+    )
+
+    track['toss_id_test'] = np.where(track['toss_start_validation'] == 0, None, track['toss_id'])
 
     track = track.reset_index(drop = True)
 

@@ -7,14 +7,38 @@ shuffle_data %>%
   filter(!is.na(toss_id)) %>% 
   View()
 
-shuffle_data_2 <- shuffle_data %>% 
-  group_by(track_id) %>% 
+shuffle_data_end <- shuffle_data %>% 
+  group_by(toss_id, track_id) %>% 
   arrange(frame) %>% 
-  mutate(x_lag = lag(x),
-         y_lag = lag(y),
-         change = sqrt((x - x_lag)^2 + (y - y_lag)^2))
+  slice_tail()
 
-quantile(shuffle_data_2$change, c(0.01, 0.25, 0.5, 0.75, 0.9), na.rm = T)
+unique(shuffle_data$toss_id)
+
+test <- shuffle_data %>% 
+  filter(toss_id == 11)
+
+# Tosses should be:
+# - initial board setup (3 stones) | TOSS ID 1
+# - first actual toss all the way. gray stone hits black stone and gray stone falls off board | TOSS ID 3
+# - second actual toss. black stone makes slight contact with gray stone and stops on board | TOSS ID 7
+# - third actual toss. gray stone knocks off black stone
+# - fourth actual toss. black stone lightly taps gray stone (this one may cause issues) | TOSS ID 15
+# - fifth actual toss. gray stone hits black stone and both fall off board
+# - sixth actual toss. black stone hits black and gray stones, black stone that was just tossed and gray stone fall off board | TOSS ID 21
+# - seventh actual toss. gray stone hits black stone, which knocks another gray stone off of board | TOSS ID 25
+# - eighth actual toss. black stone hits gray stone off of board
+# - ninth actual toss. gray stone knocks off black stone and sticks on edge of the board | TOSS ID 31
+
+# should be 10 total unique non-NA toss IDs
+
+shuffle_data %>%
+  filter(toss_id == 15) %>% 
+  filter(stone_settled == 0) %>% 
+  ggplot(aes(x = x, y = y)) +
+  geom_point() +
+  coord_fixed() +
+  xlim(c(0, 26)) +
+  ylim(c(0, 188))
 
 anim <- ggplot() +
   geom_point(data = shuffle_data,
@@ -41,3 +65,8 @@ test_points %>%
   coord_fixed() +
   xlim(c(0, 26)) +
   ylim(c(0, 94))
+
+
+
+
+
