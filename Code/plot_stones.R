@@ -2,6 +2,7 @@ library(tidyverse)
 library(gganimate)
 
 shuffle_data <- read_csv("Documents/Shuffleboard/Data/tracking_data_cleaned.csv")
+shuffle_data <- read_csv("Documents/Shuffleboard/Data/tracking_data_cleaned_tosses_only.csv")
 
 shuffle_data %>% 
   filter(!is.na(toss_id)) %>% 
@@ -15,24 +16,24 @@ shuffle_data_end <- shuffle_data %>%
 unique(shuffle_data$toss_id)
 
 test <- shuffle_data %>% 
-  filter(toss_id == 11)
+  filter(toss_id == 2)
 
 # Tosses should be:
 # - initial board setup (3 stones) | TOSS ID 1
-# - first actual toss all the way. gray stone hits black stone and gray stone falls off board | TOSS ID 3
-# - second actual toss. black stone makes slight contact with gray stone and stops on board | TOSS ID 7
-# - third actual toss. gray stone knocks off black stone
-# - fourth actual toss. black stone lightly taps gray stone (this one may cause issues) | TOSS ID 15
-# - fifth actual toss. gray stone hits black stone and both fall off board
-# - sixth actual toss. black stone hits black and gray stones, black stone that was just tossed and gray stone fall off board | TOSS ID 21
-# - seventh actual toss. gray stone hits black stone, which knocks another gray stone off of board | TOSS ID 25
-# - eighth actual toss. black stone hits gray stone off of board
-# - ninth actual toss. gray stone knocks off black stone and sticks on edge of the board | TOSS ID 31
+# - first actual toss all the way. gray stone hits black stone and gray stone falls off board | TOSS ID 2
+# - second actual toss. black stone makes slight contact with gray stone and stops on board | TOSS ID 3
+# - third actual toss. gray stone knocks off black stone | TOSS ID 4
+# - fourth actual toss. black stone lightly taps gray stone (this one may cause issues) | TOSS ID 5 (TOSS ID 6 is the bug with the new stone ID popping up mid toss for some reason)
+# - fifth actual toss. gray stone hits black stone and both fall off board | TOSS ID 7
+# - sixth actual toss. black stone hits black and gray stones, black stone that was just tossed and gray stone fall off board | TOSS ID 8
+# - seventh actual toss. gray stone hits black stone, which knocks another gray stone off of board | TOSS ID 9
+# - eighth actual toss. black stone hits gray stone off of board | TOSS ID 10
+# - ninth actual toss. gray stone knocks off black stone and sticks on edge of the board | TOSS ID 11
 
 # should be 10 total unique non-NA toss IDs
 
 shuffle_data %>%
-  filter(toss_id == 15) %>% 
+  filter(toss_id == 11) %>% 
   filter(stone_settled == 0) %>% 
   ggplot(aes(x = x, y = y)) +
   geom_point() +

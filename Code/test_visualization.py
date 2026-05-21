@@ -4,11 +4,11 @@ import matplotlib.animation as animation
 import pandas as pd
 import numpy as np
 
-from test_build_pbp import clean_tracking_data
+from pbp_functions import clean_tracking_data
 
-predictions = pd.read_csv("Data/predictions.csv")
+predictions = pd.read_csv("Data/test_window.csv")
 
-predictions = clean_tracking_data(predictions)
+#predictions = clean_tracking_data(predictions)
 
 print(predictions)
 

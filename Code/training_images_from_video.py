@@ -5,7 +5,7 @@ import os
 def save_random_frames_from_clip(video_folder, output_folder, frames_per_video = 20):
     video_files = [
         f for f in os.listdir(video_folder)
-        if f.lower().startswith("img_99")
+        if f.lower().startswith("img")
     ]
 
     print(f"Found {len(video_files)} video(s). Extracting {frames_per_video} frames each...")
@@ -49,5 +49,6 @@ def save_random_frames_from_clip(video_folder, output_folder, frames_per_video =
 
 
 
-save_random_frames_from_clip("../Film", "../Training Images")
+save_random_frames_from_clip("Film/Andy_Kyle/", "Training Images", 1)
+
 
