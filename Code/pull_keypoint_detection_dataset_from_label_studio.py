@@ -1,11 +1,11 @@
 import shutil
 import json
 import os
+import csv
 from api_info import *
 from label_studio_sdk import Client, LabelStudio
-
-# TODO - all of this
-
+from sklearn.model_selection import train_test_split
+from concurrent.futures import ThreadPoolExecutor
 
 ls_client = Client(url = LABEL_STUDIO_API_URL, api_key = LABEL_STUDIO_API_KEY)
 
@@ -19,83 +19,102 @@ export_annotations = project.export_tasks(
 
 JSON_PATH = "../Data/keypoint_detection/dataset.json"
 ORIGINAL_IMAGE_DIR = "../Training Images"
-TRAIN_LABEL_OUTPUT_DIR = "../Data/keypoint_detection/labels/train"
-VAL_LABEL_OUTPUT_DIR = "../Data/keypoint_detection/labels/val"
-TRAIN_IMAGE_OUTPUT_DIR = "../Data/keypoint_detection/images/train"
-VAL_IMAGE_OUTPUT_DIR = "../Data/keypoint_detection/images/val"
+LABEL_OUTPUT = "../Data/keypoint_detection/labels"
+IMAGE_OUTPUT = "../Data/keypoint_detection/images"
 
-CLASS_MAP = {
-    "Black Stone": 0,
-    "Gray Stone": 1,
-    "Green Stone": 2
-}
 
-os.makedirs(TRAIN_LABEL_OUTPUT_DIR, exist_ok=True)
-os.makedirs(VAL_LABEL_OUTPUT_DIR, exist_ok=True)
-os.makedirs(TRAIN_IMAGE_OUTPUT_DIR, exist_ok=True)
-os.makedirs(VAL_IMAGE_OUTPUT_DIR, exist_ok=True)
+
+KEYPOINT_ORDER = [
+    'Left 1 Point Line', 'Right 1 Point Line',
+    'Left 2 Point Line', 'Right 2 Point Line',
+    'Left 3 Point Line', 'Right 3 Point Line',
+    'Left Baseline', 'Right Baseline',
+]
+
+os.makedirs(LABEL_OUTPUT, exist_ok=True)
+os.makedirs(IMAGE_OUTPUT, exist_ok=True)
 
 
 with open(JSON_PATH) as f:
     data = json.load(f)
 
 
-# The items are labeled as a keypoint problem but this converts it to be a small bounding box to make it easier to train the model
-
 total_num_items = len(data)
 
-iter = 0
-for item in data:
-    iter = iter + 1
-    image_path = item["data"]["image"]
-    filename = os.path.basename(image_path)
+rows = []
+skipped = 0
+skipped_no_points = 0
+print(total_num_items)
+
+
+def copy_image(args):
+    src, dst = args
+    shutil.copy(src, dst)
+
+image_files = [
+    (os.path.join(ORIGINAL_IMAGE_DIR, f), os.path.join(IMAGE_OUTPUT, f))
+    for f in os.listdir(ORIGINAL_IMAGE_DIR)
+    if f.lower().endswith((".jpg", ".jpeg", ".png"))
+]
+
+with ThreadPoolExecutor() as executor:
+    executor.map(copy_image, image_files)
+
+for task in data:
+    
+    image_filename = os.path.basename(task["data"]["image"])
+    results = task.get("annotations", [{}])[0].get("result", [])
+    keypoints = {}
+
+    filename = os.path.basename(image_filename)
     # remove prefix
     if "IMG_" in filename:
         filename = filename.split("IMG_")[1]
         filename = "IMG_" + filename
-    txt_name = filename.replace(".jpg", ".txt")
 
-    lines = []
-
-    annotations = item.get("annotations", [])
-    if not annotations:
+    for item in results:
+        if item["type"] != "keypointlabels":
+            continue
+        kp_name = item["value"]["keypointlabels"][0]
+        # ignore the stones, just take the keypoints
+        if kp_name not in KEYPOINT_ORDER:
+            continue
+        keypoints[kp_name] = (
+            item["value"]["x"] / 100,
+            item["value"]["y"] / 100,
+        )
+    
+    # skip images where any expected keypoint is missing
+    if len(keypoints) < len(KEYPOINT_ORDER):
+        missing = [k for k in KEYPOINT_ORDER if k not in keypoints]
+        print(f"Skipping {filename} — missing: {missing}")
+        skipped += 1
         continue
 
-    results = annotations[0]["result"]
+    # build row: image path followed by x1,y1,x2,y2,...
+    row = [os.path.join(IMAGE_OUTPUT, filename)]
+    for kp_name in KEYPOINT_ORDER:
+        x, y = keypoints[kp_name]
+        row += [f"{x:.6f}", f"{y:.6f}"]
+    rows.append(row)
 
-    for r in results:
-        if r["type"] != "keypointlabels":
-            continue
+if not rows:
+    print("No valid annotations found.")
 
-        label = r["value"]["keypointlabels"][0]
-        if label not in CLASS_MAP:
-            continue
+# split into train/val
+train_rows, val_rows = train_test_split(rows, test_size = 0.2, random_state = 30)
+header = ["image"]
 
-        x = r["value"]["x"] / 100.0
-        y = r["value"]["y"] / 100.0
+for kp in KEYPOINT_ORDER:
+    header += [f"{kp}_x", f"{kp}_y"]
 
-        cls = CLASS_MAP[label]
+for split, data in [("train", train_rows), ("val", val_rows)]:
+    path = os.path.join(LABEL_OUTPUT, f"{split}.csv")
+    with open(path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(data)
+    print(f"{split}: {len(data)} images -> {path}")
 
-        lines.append(f"{cls} {x} {y} {BOX_SIZE} {BOX_SIZE}")
-
-    if lines:
-        if iter <= 0.8 * total_num_items:
-            with open(os.path.join(TRAIN_LABEL_OUTPUT_DIR, txt_name), "w") as f:
-                f.write("\n".join(lines))
-
-            src_image_path = os.path.join(ORIGINAL_IMAGE_DIR, filename)
-            dest_image_path = os.path.join(TRAIN_IMAGE_OUTPUT_DIR, filename)
-            shutil.copy(src_image_path, dest_image_path)
-        else:
-            with open(os.path.join(VAL_LABEL_OUTPUT_DIR, txt_name), "w") as f:
-                f.write("\n".join(lines))
-            src_image_path = os.path.join(ORIGINAL_IMAGE_DIR, filename)
-            dest_image_path = os.path.join(VAL_IMAGE_OUTPUT_DIR, filename)
-            shutil.copy(src_image_path, dest_image_path)
-
-        
-
-print('done')
-
-
-
+print(f"Skipped {skipped} incomplete annotations")
+print(f"Skipped {skipped_no_points} annotations with no labels at all")
