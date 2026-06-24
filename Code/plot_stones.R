@@ -1,8 +1,9 @@
 library(tidyverse)
 library(gganimate)
 
-shuffle_data <- read_csv("Documents/Shuffleboard/Data/tracking_data_cleaned.csv")
-shuffle_data <- read_csv("Documents/Shuffleboard/Data/tracking_data_cleaned_tosses_only.csv")
+shuffle_data <- read_csv("Documents/Shuffleboard/Data/test_window_track.csv")
+shuffle_data_final_frame <- read_csv("Documents/Shuffleboard/Data/test_window_final_frames.csv")
+shuffle_data_pbp <- read_csv("Documents/Shuffleboard/Data/test_window_pbp_scores.csv")
 
 shuffle_data %>% 
   filter(!is.na(toss_id)) %>% 
@@ -16,7 +17,7 @@ shuffle_data_end <- shuffle_data %>%
 unique(shuffle_data$toss_id)
 
 test <- shuffle_data %>% 
-  filter(toss_id == 2)
+  filter(toss_id == 10)
 
 # Tosses should be:
 # - initial board setup (3 stones) | TOSS ID 1
@@ -33,8 +34,9 @@ test <- shuffle_data %>%
 # should be 10 total unique non-NA toss IDs
 
 shuffle_data %>%
-  filter(toss_id == 11) %>% 
-  filter(stone_settled == 0) %>% 
+  filter(window == 2) %>% 
+  filter(toss_id == 3) %>% 
+  #filter(stone_settled == 0) %>%
   ggplot(aes(x = x, y = y)) +
   geom_point() +
   coord_fixed() +

@@ -43,6 +43,7 @@ start = time.perf_counter()
 results = model.track(
     source=SOURCE,
     tracker=TRACKER,
+    iou = 0.5,
     save=True,
     save_json=True,
     persist=True,
@@ -110,7 +111,7 @@ y_new = transformed_points[1] / transformed_points[2]
 all_predictions_df['x'] = x_new
 all_predictions_df['y'] = y_new
 
-all_predictions_df.to_csv("Data/predictions.csv")
+all_predictions_df.to_csv("Data/test_clip_predictions_for_botsort_parameter_testing.csv")
 
 end = time.perf_counter()
 print(f"Execution time: {end - start:.6f} seconds")
