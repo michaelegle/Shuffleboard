@@ -1,0 +1,13 @@
+path: ../../Data/keypoint_detection
+train: images/train
+val: images/val
+nc: 8
+names: 
+    0: left_1
+    1: right_1
+    2: left_2
+    3: right_2
+    4: left_3
+    5: right_3
+    6: left_baseline
+    7: right_baseline
