@@ -9,7 +9,7 @@ import numpy as np
 import cv2
 import pandas as pd
 
-model_dir = "Code/runs/detect/train10/weights/best.pt"
+model_dir = "Models/keypoint_detection/model_saves/weights/best.pt"
 model = YOLO(model_dir)
 
 SOURCE = "Film/test_clip.MOV"
@@ -69,51 +69,4 @@ for frame_idx, result in enumerate(results):
         frame_predictions = pd.concat([frame_predictions, prediction_df])
     all_predictions_df = pd.concat([all_predictions_df, frame_predictions])
 
-
-points = np.vstack([all_predictions_df['pred_x'], 
-                    all_predictions_df['pred_y'], 
-                    np.ones(len(all_predictions_df['pred_x']))])
-
-print(points)
-
-
-# Left 1 point line: 244, 975 -> 0, 88
-# Left 2 point line: 109, 482 -> 0, 12
-# Left 3 point line: 82, 373 -> 0, 6
-# Left baseline: 46, 248 -> 0, 0
-
-# Right 1 point line: 445, 975 -> 20, 88
-# Right 2 point line: 573, 488 -> 20, 12
-# Right 3 point line: 599, 382 -> 20, 6
-# Right baseline: 634, 253 -> 20, 0
-
-pts_source = np.array([[244, 1280 - 975], [109, 1280 - 482], [82, 1280 - 373], [46, 1280 - 248],
-                       [445, 1280 - 975], [573, 1280 - 488], [599, 1280 - 382], [634, 1280 - 253]])
-
-pts_dest = np.array([[3, 94], [3, 18], [3, 12], [3, 6],
-                     [23, 94], [23, 18], [23, 12], [23, 6]])
-
-h = cv2.findHomography(pts_source, pts_dest, cv2.RANSAC)
-
-h = h[0]
-
-H = np.array([[   0.027449,   -0.007561,     0.64209],
-              [ -0.0005194,    0.033204,     -8.1587],
-              [ -5.636e-06, -0.00074346,           1]])
-
-transformed_points = h @ points
-
-print(h)
-
-x_new = transformed_points[0] / transformed_points[2]
-y_new = transformed_points[1] / transformed_points[2]
-
-all_predictions_df['x'] = x_new
-all_predictions_df['y'] = y_new
-
-all_predictions_df.to_csv("Data/test_clip_predictions_for_botsort_parameter_testing.csv")
-
-end = time.perf_counter()
-print(f"Execution time: {end - start:.6f} seconds")
-
-
+print(all_predictions_df)

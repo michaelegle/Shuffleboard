@@ -11,7 +11,8 @@ def train_model():
     # Train
     model.train(
         data="../Models/stone_detection/data.yaml",
-        name = "../Models/stone_detection/model_saves",
+        project = "C:/Users/Michael Egle/Documents/Shuffleboard",
+        name = "Models/stone_detection/model_saves",
         imgsz=640,
         epochs=100,
         batch=16,

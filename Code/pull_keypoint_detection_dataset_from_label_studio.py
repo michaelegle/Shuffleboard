@@ -4,9 +4,6 @@ import os
 from api_info import *
 from label_studio_sdk import Client, LabelStudio
 
-# TODO - all of this
-
-
 ls_client = Client(url = LABEL_STUDIO_API_URL, api_key = LABEL_STUDIO_API_KEY)
 
 project = ls_client.get_project(id = LABEL_STUDIO_PROJECT_ID)
@@ -25,10 +22,17 @@ TRAIN_IMAGE_OUTPUT_DIR = "../Data/keypoint_detection/images/train"
 VAL_IMAGE_OUTPUT_DIR = "../Data/keypoint_detection/images/val"
 
 CLASS_MAP = {
-    "Black Stone": 0,
-    "Gray Stone": 1,
-    "Green Stone": 2
+    "Left 1 Point Line": 0,
+    "Right 1 Point Line": 1,
+    "Left 2 Point Line": 2,
+    "Right 2 Point Line": 3,
+    "Left 3 Point Line": 4,
+    "Right 3 Point Line": 5,
+    "Left Baseline": 6,
+    "Right Baseline": 7
 }
+
+BOX_SIZE = 0.02  # TODO tweak this at some point
 
 os.makedirs(TRAIN_LABEL_OUTPUT_DIR, exist_ok=True)
 os.makedirs(VAL_LABEL_OUTPUT_DIR, exist_ok=True)
@@ -54,6 +58,8 @@ for item in data:
         filename = filename.split("IMG_")[1]
         filename = "IMG_" + filename
     txt_name = filename.replace(".jpg", ".txt")
+
+    print(filename)
 
     lines = []
 
@@ -92,8 +98,6 @@ for item in data:
             src_image_path = os.path.join(ORIGINAL_IMAGE_DIR, filename)
             dest_image_path = os.path.join(VAL_IMAGE_OUTPUT_DIR, filename)
             shutil.copy(src_image_path, dest_image_path)
-
-        
 
 print('done')
 
