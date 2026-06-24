@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import math
 
-track_raw = pd.read_csv("Data/predictions.csv")
+track_raw = pd.read_csv("Data/test_clip_predictions_for_botsort_parameter_testing.csv")
 
 def clean_tracking_data(track, 
                         minimum_frames_per_stone = 2,
@@ -31,7 +31,9 @@ def clean_tracking_data(track,
 
     # Clean up the data a little more. Make the class names more constant. A stone's color is the most common predicted color while it's in bounds
     track = track.groupby('track_id').apply(lambda x: x.assign(
-        final_class_name = x['class_name'][x['in_bounds'] == 1].mode()[0]
+        final_class_name = x['class_name'][x['in_bounds'] == 1].mode().iloc[0]
+        if not x['class_name'][x['in_bounds'] == 1].empty
+        else None
     ))
 
     # Conditions for a stone's score
@@ -136,7 +138,7 @@ track_frame_cleaned_agg = track_cleaned.groupby(['frame', 'final_class_name']).a
 
 print(track_frame_cleaned_agg)
 
-track_cleaned.to_csv("Data/tracking_data_cleaned.csv")
+track_cleaned.to_csv("Data/cleaned_predictions_from_botsort_test_parameters.csv")
 
 track_tosses = track_cleaned[track_cleaned['toss_id'] != None]
 

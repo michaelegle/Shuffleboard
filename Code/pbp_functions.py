@@ -6,7 +6,6 @@ from custom_botsort import DistanceAwareBOTSORT
 from custom_kalman_filter_params import CollisionAwareKalmanFilter
 from types import MethodType
 import time
-import json
 import numpy as np
 import cv2
 import pandas as pd
@@ -19,7 +18,7 @@ TRACKER = "Code/custom_botsort_params.yaml"
 
 def predict_new_video(video_path,
                       window,
-                      model_dir = "Code/runs/detect/train10/weights/best.pt"):
+                      model_dir = "Models/stone_detection/model_saves/weights/best.pt"):
 
     model = YOLO(model_dir)
     # Step 1: stream=True gives us a generator — grab just the first frame
@@ -49,7 +48,8 @@ def predict_new_video(video_path,
     results = model.track(
         source = video_path,
         tracker = TRACKER,
-        save = True,
+        iou = 0.5,
+        save = False,
         save_json = False,
         persist = True,
         device = "mps",
@@ -58,7 +58,6 @@ def predict_new_video(video_path,
     
     all_predictions_df = pd.DataFrame()
     for frame_idx, result in enumerate(results):
-        frame_data = {"frame": frame_idx, "predictions": []}
         frame_predictions = pd.DataFrame()
         for box in result.boxes:
             prediction = {
@@ -70,6 +69,7 @@ def predict_new_video(video_path,
                 "pred_x": float(box.xywh[0][0]),
                 "pred_y": float(box.xywh[0][1])
             }
+            # TODO - find issue from frames 400-600 being missed for some reason
             prediction_df = pd.DataFrame(prediction, index = [0])
             frame_predictions = pd.concat([frame_predictions, prediction_df])
         all_predictions_df = pd.concat([all_predictions_df, frame_predictions])
@@ -81,6 +81,9 @@ def predict_new_video(video_path,
     
     print(points)
 
+
+    # TODO - this is temporary and just used for testing. In the future, use the keypoint detection model to find
+    #        the keypoints for the homography matrix
     if "Andy_Mike" in video_path:
         if window == 1:
             pts_source = np.array([[312, 415], [176, 801], [151, 881], [118, 976],
@@ -105,18 +108,20 @@ def predict_new_video(video_path,
             pts_source = np.array([[236, 439], [111, 920], [83, 1025], [51, 1161],
                                    [429, 446], [577, 921], [614, 1025], [649, 1159]])
 
+    # Destination (ground truth) points for where each point should be mapped to
     pts_dest = np.array([[3, 94], [3, 18], [3, 12], [3, 6],
                          [23, 94], [23, 18], [23, 12], [23, 6]])
 
+    # Calculate the homography matrix
     h = cv2.findHomography(pts_source, pts_dest, cv2.RANSAC)
-
     h = h[0]
 
+    # Transform and standardize all of the points
     transformed_points = h @ points
-
     x_new = transformed_points[0] / transformed_points[2]
     y_new = transformed_points[1] / transformed_points[2]
 
+    # Create a new column for the x and y columns after the homography matrix has been applied
     all_predictions_df['x'] = x_new
     all_predictions_df['y'] = y_new
 
@@ -129,7 +134,7 @@ def predict_new_video(video_path,
 
 
 def clean_tracking_data(track, 
-                        minimum_frames_per_stone = 2,
+                        minimum_frames_per_stone = 10,
                         minimum_settled_distance_allowed = 1 / 16):
 
     track = track.assign(
@@ -138,6 +143,8 @@ def clean_tracking_data(track,
         lag_frame = lambda x: x.groupby('track_id')['frame'].transform('shift'),
         n_frames_for_stone = lambda x: x.groupby('track_id')['frame'].transform('nunique')
     )
+    
+    # TODO - address the camera perspective making stones look farther from the camera than they really are
 
     # Remove stones that appear in fewer than X frames (default 2)
     track = track[track['n_frames_for_stone'] > minimum_frames_per_stone]
@@ -196,6 +203,9 @@ def clean_tracking_data(track,
     # Reset the index
     track = track.reset_index(drop = True)
 
+    # TODO - fix the issues with all_stones_settled event. If a stone loses its track for even a frame, it could cause issues
+    # (Need to improve model and botsort parameters to ensure that this rarely, if ever, happens. But need to have corrections in place in case)
+
     # Conditions for the event for a frame
     conditions = [
         (track_frame_agg['stones_initialized_in_frame'] > 0), # Stone was initialized in the frame
@@ -214,13 +224,18 @@ def clean_tracking_data(track,
     # Sort the data
     track.sort_values(by = ['frame', 'stone_initialized', 'track_id'], ascending = [True, False, True], inplace = True)
 
-    # 
+    # Find the lag event
     track['lag_event'] = track['event'].shift(1)
+    # TODO - fix the stones newly settled flag
     track['stones_newly_settled_flag'] = np.where((track['event'] == 'all_stones_settled') & (track['lag_event'] != 'all_stones_settled'), 1, 0)
 
+    # Flag if a new toss began on this frame
     track['start_new_toss_flag'] = np.where((track['event'] == 'stone_initialized') & (track['lag_event'] != 'stone_initialized'), 1, 0)
+    
+    # Flag if this is the start or an end of a toss
     track['round_event_flag'] = np.where((track['start_new_toss_flag'] == 1) | (track['stones_newly_settled_flag'] == 1), 1, 0)
 
+    # 
     conditions = [
         (track['stones_newly_settled_flag'] == 1),
         (track['start_new_toss_flag'] == 1)
@@ -246,28 +261,173 @@ def clean_tracking_data(track,
 
     # Note that the criteria is 96 and not 94. This is to provide a little leeway in case the models say that a stone directly on the halfcourt line is actually above it
     track['is_tossed_stone'] = np.where(track['track_id_max_y_on_board'] > 96, 1, 0)
+
     
     track = track.reset_index(drop = True)
 
     return track
 
+def cross2d(o, a, b):
+    """2D cross product of vectors OA and OB."""
+    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+def track_wembo_status_helper(track, toss_id, minimum_settled_distance_allowed = 1 / 16):
+    track_sub = track[track['toss_id'] == toss_id]
+
+    # If some other stone (aside from the tossed stone) moved at some point during the frame, it cannot be a wembo
+    if len(track_sub[(track_sub['stone_settled'] == 0) & (track_sub['is_tossed_stone'] == 0)]) > 0:
+        return pd.DataFrame({'toss_id' : toss_id,
+                             'wembo_split' : 0},
+                             index = [0])
+    
+    
+    # If no stone other than the tossed stone moved, find the order of 
+    track_sub_first_row = track_sub.groupby('track_id').head(1)
+
+    toss_class = track_sub_first_row[track_sub_first_row['is_tossed_stone'] == 1]['final_class_name'].iloc[0]
+
+    # If there are fewer than 2 stones for the opposing stone color on the board, skip the rest of this
+    if(len(track_sub_first_row[track_sub_first_row['final_class_name'] != toss_class]) < 2):
+        return pd.DataFrame({'toss_id' : toss_id,
+                             'wembo_split' : 0},
+                             index = [0])
+
+    x_sorted = track_sub_first_row.sort_values('x')
+    y_sorted = track_sub_first_row.sort_values('y')
+
+    # First handle x direction
+    x_track_x_values = x_sorted['x'].tolist()
+    x_track_y_values = x_sorted['y'].tolist()
+    x_track_class = x_sorted['final_class_name'].tolist()
+
+    # Then handle y direction
+    y_track_x_values = y_sorted['x'].tolist()
+    y_track_y_values = y_sorted['y'].tolist()
+    y_track_class = y_sorted['final_class_name'].tolist()
+
+    eligible_wembo_pairs = []
+
+    for i in range(1, len(x_track_class)):
+        if (x_track_class[i] != toss_class and x_track_class[i - 1] != toss_class):
+            pair = ((x_track_x_values[i], x_track_y_values[i]),
+                    (x_track_x_values[i - 1], x_track_y_values[i - 1]))
+            
+            eligible_wembo_pairs.append(pair)
+
+    for i in range(1, len(y_track_class)):
+        if (y_track_class[i] != toss_class and y_track_class[i - 1] != toss_class):
+            pair = ((y_track_x_values[i], y_track_y_values[i]),
+                    (y_track_x_values[i - 1], y_track_y_values[i - 1]))
+            
+            eligible_wembo_pairs.append(pair)
+
+    if(len(eligible_wembo_pairs) == 0):
+        return pd.DataFrame({'toss_id' : toss_id,
+                             'wembo_split' : 0},
+                             index = [0])
+    
+    tossed_stone_subset = track_sub_first_row[(track_sub_first_row['is_tossed_stone'] == 1) & (track_sub_first_row['lag_x'].notna())]
+
+    for wembo_pair in eligible_wembo_pairs:
+        # TODO
+        for row in tossed_stone_subset.iterrows():
+            a = (row['lag_x'], row['lag_y'])
+            b = (row['x'], row['y'])
+
+            comp_point_1 = wembo_pair[0]
+            comp_point_2 = wembo_pair[1]
+
+            d1 = cross2d(comp_point_1, comp_point_2, a)
+            d2 = cross2d(comp_point_1, comp_point_2, b)
+            d3 = cross2d(a, b, comp_point_1)
+            d4 = cross2d(a, b, comp_point_2)
+            if (((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and
+                ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0))):
+                return pd.DataFrame({'toss_id' : toss_id,
+                                     'wembo_split' : 1},
+                                     index = [0])
+
+    return pd.DataFrame({'toss_id' : toss_id,
+                         'wembo_split' : 0},
+                         index = [0])
+
+
+
+
+
+def track_wembo_status(track, minimum_settled_distance_allowed = 1 / 16):
+    # TODO
+    # Should return a dataframe with two columns: toss ID and wembo, which is a binary flag that denotes if a toss was a wembo or not
+
+    all_toss_ids = track['toss_id'].unique()
+
+    all_wembo_tracks = pd.DataFrame()
+    for wembo_toss_id in all_toss_ids:
+        toss_wembo_track = track_wembo_status_helper(track = track, toss_id = wembo_toss_id, minimum_settled_distance_allowed = minimum_settled_distance_allowed)
+        all_wembo_tracks = pd.concat([all_wembo_tracks, toss_wembo_track])
+
+    return all_wembo_tracks
 
 def build_all_data_formats(track, 
                            minimum_frames_per_stone = 2,
                            minimum_settled_distance_allowed = 1 / 16):
     # TODO 
+
+    # Clean the tracking data
     track_cleaned = clean_tracking_data(track)
 
+    # Remove the data that's not part of a toss
     track_tosses = track_cleaned[track_cleaned['toss_id'] != None]
-    final_frame_df = track_tosses.groupby('toss_id').agg(max_frame_in_toss = ('frame', 'max'))
+
+    track_wembos = track_wembo_status(track_tosses)
+
+    # Find the max frame value in each toss ID and merge that column into the tracking data
+    final_frame_df = track_tosses.groupby('toss_id').agg(
+        max_frame_in_toss = ('frame', 'max'),
+        class_of_tossed_stone = ('final_class_name', 
+                                 lambda x: x[track_tosses.loc[x.index, 'is_tossed_stone'] == 1].iloc[0]))
+    
     track_tosses_final_frame = pd.merge(track_tosses, final_frame_df, how = "left", on = 'toss_id')
+    
+    # Filter down to the final frame, and only include stones that are on the board
     track_tosses_final_frame = track_tosses_final_frame[track_tosses_final_frame['frame'] == track_tosses_final_frame['max_frame_in_toss']]
     track_tosses_final_frame = track_tosses_final_frame[track_tosses_final_frame['in_bounds'] == 1]
-    track_tosses_final_frame_scores = track_tosses_final_frame.groupby(['toss_id', 'final_class_name']).agg(total_score = ('stone_score', 'sum'))
 
+    track_tosses_final_frame = track_tosses_final_frame.assign(
+        lag_stone_score = lambda x: x.groupby('track_id')['stone_score'].transform('shift'),
+    )
 
-    # TODO - figure out the first/second window parts
-    return track_tosses, track_tosses_final_frame, track_tosses_final_frame_scores
+    track_tosses_final_frame['favor'] = np.where((track_tosses_final_frame['stone_score'] > track_tosses_final_frame['lag_stone_score']) & 
+                                                 (track_tosses_final_frame['final_class_name'] != track_tosses_final_frame['class_of_tossed_stone']),
+                                                 1, 0)
+    
+    track_tosses_final_frame['assist'] = np.where((track_tosses_final_frame['stone_score'] > track_tosses_final_frame['lag_stone_score']) & 
+                                                  (track_tosses_final_frame['final_class_name'] == track_tosses_final_frame['class_of_tossed_stone']),
+                                                  1, 0)
+
+    toss_results = track_tosses_final_frame.groupby('toss_id').agg(
+        class_of_tossed_stone = ('class_of_tossed_stone', 'first'),
+        points_from_toss = ('stone_score', lambda x:
+                            x[track_tosses_final_frame.loc[x.index, 'is_tossed_stone'] == 1].iloc[0]
+                            if x[track_tosses_final_frame.loc[x.index, 'is_tossed_stone'] == 1].any()
+                            else 0),
+        black_stones_on_board = ('final_class_name', lambda x: (x == 'black_stone').sum()),
+        gray_stones_on_board = ('final_class_name', lambda x: (x == 'gray_stone').sum()),
+        favor = ('favor', 'max'),
+        assist = ('assist', 'max')
+    )
+
+    track_tosses_final_frame.drop(columns = 'class_of_tossed_stone', inplace = True)
+
+    toss_results = pd.merge(toss_results, track_wembos, how = 'left', on = 'toss_id')
+    toss_results['wembo'] = np.where((toss_results['wembo_split'] == 1) & (toss_results['points_from_toss'] == 0), 1, 0)
+
+    toss_results.drop(columns = 'wembo_split', inplace = True)
+    # Calculate the scores after each toss
+    track_tosses_final_frame_scores = track_tosses_final_frame.groupby(['toss_id', 'final_class_name']).agg(window_score = ('stone_score', 'sum'))
+
+    # TODO - create table for individual toss results
+    return track_tosses, track_tosses_final_frame, track_tosses_final_frame_scores, toss_results
 
 
 
@@ -302,23 +462,89 @@ def build_data_from_game_folder(video_path):
     print(game_start_str)
 
     window_number = 1
+    black_stone_overall_score_last_window = 0
+    gray_stone_overall_score_last_window = 0
+    full_game_track = pd.DataFrame()
+    full_game_final_frames = pd.DataFrame()
+    full_game_round_scores = pd.DataFrame()
     for video in sorted_videos:
 
         print(video + " " + str(window_number))
         pred_track_window = predict_new_video(video_path = video,
                                               window = window_number)
 
-        #tracking_data, final_frame_data, frame_scores_data = build_all_data_formats(video)
 
-        cleaned_pred_track_window = clean_tracking_data(pred_track_window)
+        cleaned_pred_track_window, pred_final_frame, pred_round_scores, pred_toss_scores = build_all_data_formats(track = pred_track_window)
 
+
+        # Don't drop this index since that is the toss ID field
+        pred_round_scores = pred_round_scores.reset_index()
+
+        print(pred_round_scores)
+
+        pred_round_scores = pred_round_scores.pivot(index = 'toss_id', columns = 'final_class_name', values = 'window_score').fillna(0)
+
+        pred_round_scores = pred_round_scores.rename(columns = {'black_stone': 'black_stone_window_score',
+                                                                'gray_stone': 'gray_stone_window_score'})
+
+        
+        pred_round_scores = pd.merge(pred_round_scores, pred_toss_scores, how = "left", on = "toss_id")
+
+        # Add 3 columns: one for the video's timestamp, the window, and the time when it was last updated
+        # Add columns for the tracking data
         cleaned_pred_track_window['game_timestamp'] = game_start_str
         cleaned_pred_track_window['window'] = window_number
+        cleaned_pred_track_window['last_updated'] = pd.Timestamp.now()
 
-        cleaned_pred_track_window['last_updated'] = pd.Timestamp()
+        # Add columns for the final frame data
+        pred_final_frame['game_timestamp'] = game_start_str
+        pred_final_frame['window'] = window_number
+        pred_final_frame['last_updated'] = pd.Timestamp.now()
 
-        cleaned_pred_track_window.to_csv('Data/test_window.csv')
+        # Add columns for the round by round data
+        pred_round_scores['game_timestamp'] = game_start_str
+        pred_round_scores['window'] = window_number
+        pred_round_scores['last_updated'] = pd.Timestamp.now()
 
+        
+        pred_round_scores['black_stone_overall_score'] = pred_round_scores['black_stone_window_score'] + black_stone_overall_score_last_window
+        pred_round_scores['gray_stone_overall_score'] = pred_round_scores['gray_stone_window_score'] + gray_stone_overall_score_last_window
+
+
+        black_stone_overall_score_last_window = pred_round_scores['black_stone_overall_score'].iloc[-1]
+        gray_stone_overall_score_last_window = pred_round_scores['gray_stone_overall_score'].iloc[-1]
+
+
+        # Append the data from the individual window
+        full_game_track = pd.concat([full_game_track, cleaned_pred_track_window])
+        full_game_final_frames = pd.concat([full_game_final_frames, pred_final_frame])
+        full_game_round_scores = pd.concat([full_game_round_scores, pred_round_scores])
+
+
+        
         window_number = window_number + 1
 
-build_data_from_game_folder("Film/Andy_Kyle")
+    full_game_round_scores.reset_index(inplace = True, drop = True)
+    full_game_final_frames.reset_index(inplace = True, drop = True)
+    full_game_round_scores.reset_index(inplace = True, drop = True)
+    return full_game_track, full_game_final_frames, full_game_round_scores
+
+track, final_frame, pbp = build_data_from_game_folder("Film/Andy_Kyle")
+
+print(track)
+print(final_frame)
+print(pbp)
+
+track.to_csv('Data/test_window_track.csv')
+final_frame.to_csv('Data/test_window_final_frames.csv')
+pbp.to_csv('Data/test_window_pbp_scores.csv')
+
+
+def predict_all_games(path_to_all_videos):
+    # TODO - make a data frame that will have all of the data appended
+    for folder in os.listdir(path_to_all_videos):
+        if os.path.isdir(path_to_all_videos + '/' + folder):
+            print(folder)
+            # TODO
+
+predict_all_games('Film')
