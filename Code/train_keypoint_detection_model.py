@@ -17,7 +17,12 @@ def train_model():
         epochs=100,
         batch=16,
         lr0=0.001,
-        hsv_h=0.0,  # disable heavy augmentation
+        degrees = 10,
+        scale=0.5,
+        shear=2.0,
+        mosaic=1.0,       # fine to keep, doesn't mirror content
+        mixup=0.1,
+        hsv_h=0.0,
         hsv_s=0.0,
         hsv_v=0.0,
         device=0

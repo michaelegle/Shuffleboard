@@ -35,7 +35,7 @@ test <- shuffle_data %>%
 
 shuffle_data %>%
   filter(window == 2) %>% 
-  filter(toss_id == 3) %>% 
+  filter(toss_id == 1) %>% 
   #filter(stone_settled == 0) %>%
   ggplot(aes(x = x, y = y)) +
   geom_point() +
