@@ -12,7 +12,7 @@ def train_model():
     model.train(
         data="Models/keypoint_detection/data.yaml",
         project = "C:/Users/Michael Egle/Documents/Shuffleboard",
-        name = "Models/keypoint_detection/model_saves",
+        name = "Models/keypoint_detection",
         imgsz=640,
         epochs=100,
         batch=16,
@@ -20,7 +20,7 @@ def train_model():
         degrees = 10,
         scale=0.5,
         shear=2.0,
-        mosaic=1.0,       # fine to keep, doesn't mirror content
+        mosaic=1.0,
         mixup=0.1,
         hsv_h=0.0,
         hsv_s=0.0,
