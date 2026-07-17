@@ -20,7 +20,8 @@ KEYPOINT_TRACKER = "Code/keypoint_tracking_params.yaml"
 
 def predict_new_video(video_path,
                       window,
-                      model_dir = "Models/stone_detection/model_saves/weights/best.pt"):
+                      stone_model_dir = "Models/stone_detection/model_saves/weights/best.pt",
+                      keypoint_model_dir = "Models/keypoint_detection2/weights/best.pt"):
 
     stone_model = YOLO(stone_model_dir)
     keypoint_model = YOLO(keypoint_model_dir)
@@ -70,7 +71,7 @@ def predict_new_video(video_path,
 
 
     all_predictions_df = pd.DataFrame()
-    for frame_idx, result in enumerate(results):
+    for frame_idx, result in enumerate(stone_results):
         frame_predictions = pd.DataFrame()
         for box in result.boxes:
             prediction = {
@@ -111,8 +112,7 @@ def predict_new_video(video_path,
     print(points)
 
 
-    # TODO - this is temporary and just used for testing. In the future, use the keypoint detection model to find
-    #        the keypoints for the homography matrix
+    """
     if "Andy_Mike" in video_path:
         if window == 1:
             pts_source = np.array([[312, 415], [176, 801], [151, 881], [118, 976],
@@ -137,25 +137,94 @@ def predict_new_video(video_path,
             pts_source = np.array([[236, 439], [111, 920], [83, 1025], [51, 1161],
                                    [429, 446], [577, 921], [614, 1025], [649, 1159]])
 
-    # Destination (ground truth) points for where each point should be mapped to
-    pts_dest = np.array([[3, 94], [3, 18], [3, 12], [3, 6],
-                         [23, 94], [23, 18], [23, 12], [23, 6]])
+    """
 
-    # Calculate the homography matrix
-    h = cv2.findHomography(pts_source, pts_dest, cv2.RANSAC)
-    h = h[0]
+    print(all_keypoints_df)
 
-    # Transform and standardize all of the points
-    transformed_points = h @ points
-    x_new = transformed_points[0] / transformed_points[2]
-    y_new = transformed_points[1] / transformed_points[2]
+    all_keypoints_df = all_keypoints_df.sort_values(by = 'confidence').drop_duplicates(['frame', 'class_name'])
 
-    # Create a new column for the x and y columns after the homography matrix has been applied
-    all_predictions_df['x'] = x_new
-    all_predictions_df['y'] = y_new
+    dest_pts = pd.DataFrame({
+        'class_name': ['left_1', 'left_2', 'left_3', 'left_baseline',
+                 'right_1', 'right_2', 'right_3', 'right_baseline'],
+        'dest_x': [3, 3, 3, 3,
+                   23, 23, 23, 23],
+        'dest_y': [94, 18, 12, 6,
+                   94, 18, 12, 6]
+    })
 
-    #all_predictions_df.to_csv("Data/new_predictions.csv")
+    all_keypoints_df = pd.merge(all_keypoints_df, dest_pts, how = 'left', on = 'class_name')
 
+    frames = all_keypoints_df['frame'].unique().tolist()
+
+    H_list = []
+    last_H_value = None
+    for i in frames:
+        sub_df = all_keypoints_df[all_keypoints_df['frame'] == i]
+        # TODO - do I want to exclude predictions with a confidence score below a certain threshold?
+        x_src_points = sub_df['pred_x'].tolist()
+        y_src_points = sub_df['pred_y'].tolist()
+
+        x_dest_points = sub_df['dest_x'].tolist()
+        y_dest_points = sub_df['dest_y'].tolist()
+
+        src_coord_pairs = []
+        dest_coord_pairs = []
+        for j in range(len(x_src_points)):
+            src_coord_pairs.append([x_src_points[j], y_src_points[j]])
+            dest_coord_pairs.append([x_dest_points[j], y_dest_points[j]])
+
+        src_coord_pairs = np.array(src_coord_pairs)
+        dest_coord_pairs = np.array(dest_coord_pairs)
+
+        try:
+            h_frame = cv2.findHomography(src_coord_pairs, dest_coord_pairs, cv2.RANSAC)
+            h_frame = h_frame[0]                
+        except:
+            h_frame = None
+
+        H_list.append(h_frame)
+
+
+    print(H_list)
+
+    H_array = H_list.copy()
+
+    # forward fill
+    last_known = None
+    for i in range(len(H_array)):
+        if H_array[i] is not None:
+            last_known = H_array[i]
+        elif last_known is not None:
+            H_array[i] = last_known
+
+    # backward fill
+    last_known = None
+    for i in range(len(H_array) - 1, -1, -1):
+        if H_array[i] is not None:
+            last_known = H_array[i]
+        elif last_known is not None:
+            H_array[i] = last_known
+
+    for f in frames:
+        h = H_array[f]
+        if h is None or np.array(h).shape != (3, 3):
+            print(f"Frame {f}: shape={np.array(h).shape if h is not None else None}")
+
+    H_stacked = np.stack([np.array(H_array[f], dtype=np.float64) for f in frames])
+
+    frame_to_idx = {f: i for i, f in enumerate(frames)}
+    all_predictions_df["frame_idx"] = all_predictions_df["frame"].map(frame_to_idx)
+
+    coords = np.column_stack([all_predictions_df["pred_x"].values, all_predictions_df["pred_y"].values, np.ones(len(all_predictions_df))])
+
+    # Apply the homography matrices to each frame
+    H_per_row = H_stacked[all_predictions_df["frame_idx"].values]
+    transformed = H_per_row @ coords[:, :, None]
+    transformed = transformed[:, :, 0]
+
+    # Add the new columns from the transformations 
+    all_predictions_df["x"] = transformed[:, 0] / transformed[:, 2]
+    all_predictions_df["y"] = transformed[:, 1] / transformed[:, 2]    
     end = time.perf_counter()
     print(f"Execution time: {end - start:.6f} seconds")
 
@@ -409,6 +478,16 @@ def build_all_data_formats(track,
     track_tosses = track_cleaned[track_cleaned['toss_id'] != None]
 
     track_wembos = track_wembo_status(track_tosses)
+    
+    # keypoint model kinda sucks right now,
+    # need to fix it before any improvement on this part
+    # TRAIN MORE DATA and test new tracking parameters?
+    test_track = track_tosses.groupby('toss_id').agg(
+        has_any_tossed = ('is_tossed_stone', 'max')
+    )
+
+    print(test_track)
+    print(track_tosses[['toss_id', 'track_id']].drop_duplicates())
 
     # Find the max frame value in each toss ID and merge that column into the tracking data
     final_frame_df = track_tosses.groupby('toss_id').agg(
@@ -558,7 +637,7 @@ def build_data_from_game_folder(video_path):
     full_game_round_scores.reset_index(inplace = True, drop = True)
     return full_game_track, full_game_final_frames, full_game_round_scores
 
-track, final_frame, pbp = build_data_from_game_folder("Film/Andy_Kyle")
+track, final_frame, pbp = build_data_from_game_folder("Film/Kyle_Mike")
 
 print(track)
 print(final_frame)
