@@ -13,6 +13,11 @@ def save_random_frames_from_clip(video_folder, output_folder, frames_per_video =
     for video_file in video_files:
         video_path = os.path.join(video_folder, video_file)
         video_name = os.path.splitext(video_file)[0]
+
+        if "IMG_9" in video_name:
+            continue
+        if video_name == "IMG_0409":
+            continue
         
         cap = cv2.VideoCapture(video_path)
         
@@ -49,6 +54,6 @@ def save_random_frames_from_clip(video_folder, output_folder, frames_per_video =
 
 
 
-save_random_frames_from_clip("Film/Andy_Kyle/", "Training Images", 1)
+save_random_frames_from_clip("Film", "Training Images", 30)
 
 
