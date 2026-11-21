@@ -1,4 +1,4 @@
-path: ../../Data/stone_detection
+path: ../Data/stone_detection
 train: images/train
 val: images/val
 nc: 3
