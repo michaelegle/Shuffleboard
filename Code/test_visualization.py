@@ -6,9 +6,7 @@ import numpy as np
 
 from pbp_functions import clean_tracking_data
 
-predictions = pd.read_csv("Data/test_window.csv")
-
-#predictions = clean_tracking_data(predictions)
+predictions = pd.read_csv("Data/test_window_track.csv")
 
 print(predictions)
 

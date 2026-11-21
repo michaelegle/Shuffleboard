@@ -5,6 +5,10 @@ shuffle_data <- read_csv("Documents/Shuffleboard/Data/test_window_track.csv")
 shuffle_data_final_frame <- read_csv("Documents/Shuffleboard/Data/test_window_final_frames.csv")
 shuffle_data_pbp <- read_csv("Documents/Shuffleboard/Data/test_window_pbp_scores.csv")
 
+
+# Toss ID 3, Mike's second toss against Kyle should be a wembo. Need to investigate
+
+
 shuffle_data %>% 
   filter(!is.na(toss_id)) %>% 
   View()
@@ -35,13 +39,22 @@ test <- shuffle_data %>%
 
 shuffle_data %>%
   filter(window == 2) %>% 
-  filter(toss_id == 1) %>% 
-  #filter(stone_settled == 0) %>%
-  ggplot(aes(x = x, y = y)) +
+  filter(toss_id == 12) %>%
+  View()
+  # filter(in_bounds == 1) %>% 
+  # filter(track_id == 4) %>%
+  # filter(stone_settled == 0) %>%
+  ggplot(aes(x = x, y = y, color = factor(final_class_name))) +
   geom_point() +
   coord_fixed() +
   xlim(c(0, 26)) +
   ylim(c(0, 188))
+
+test <- shuffle_data %>% 
+  filter(window == 2) %>% 
+  filter(toss_id %in% c(3, 4)) %>% 
+  filter(track_id == 3)
+
 
 anim <- ggplot() +
   geom_point(data = shuffle_data,
@@ -70,6 +83,19 @@ test_points %>%
   ylim(c(0, 94))
 
 
+
+
+test_frames <- read_csv("Documents/Shuffleboard/Data/test_frame_agg.csv")
+test_frames <- read_csv("Documents/Shuffleboard/Data/output_test.csv")
+
+
+test_frames %>% 
+  group_by(event) %>% 
+  count()
+
+
+
+new_track <- read_csv("Documents/Shuffleboard/Data/early_tracking_data.csv")
 
 
 

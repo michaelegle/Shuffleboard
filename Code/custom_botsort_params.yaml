@@ -1,8 +1,8 @@
 tracker_type: botsort
-track_high_thresh: 0.2
-track_low_thresh: 0.1
+track_high_thresh: 0.5 # this is the threshold for a prediction's confidence to be a new track. Maybe more conservative still
+track_low_thresh: 0.2 # default 0.1
 new_track_thresh: 0.6
-track_buffer: 120
+track_buffer: 120 # Allow 4 seconds of occlusion before a track is determined to be new
 match_thresh: 0.6
 gmc_method: sparseOptFlow
 proximity_thresh: 0.8
